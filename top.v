@@ -8,12 +8,19 @@ module top (
 );
 
 localparam TIMER = 75000000*2;      // two seconds @75MHz
+localparam H_RESOLUTION = 1280; 
+localparam V_RESOLUTION = 720;  
+
+reg [$clog2(H_RESOLUTION)-1:0] x_coord;
+reg [$clog2(V_RESOLUTION)-1:0] y_coord;
 
 wire pixel_clk;                     // 75 MHz pixel clock
 wire serdes_clk;                    // 375 MHz serdes clock
 wire rst;                           // active-high system reset
 reg [7:0] rstcnt;
 wire locked;
+
+
 
 wire hsync, hblank, vsync, vblank, active, fsync; // video timing
 
@@ -24,6 +31,17 @@ wire [9:0] tmds_data [0:2];         // encoded TMDS data
 integer count;
 reg [1:0] sw;
 
+wire [7:0] pdata [0:2];
+wire [7:0] pdata_r, pdata_g, pdata_b;
+
+assign ctl[0] = {vsync, hsync};                      // vsync and hsync go onto TMDS channel 0
+assign ctl[1] = 2'b00;
+assign ctl[2] = 2'b00;
+
+assign pdata[2] = pdata_r;  
+assign pdata[1] = pdata_g;  
+assign pdata[0] = pdata_b;  
+
 // Utilize MMCM to generate 75 MHz pixel clock and 375 MHz TMDS serdes clock
 mmcm_0 mmcm_0_inst (
    .clk_in1      (clk125),         // 125 MHz input clock
@@ -33,49 +51,57 @@ mmcm_0 mmcm_0_inst (
    .reset        (1'b0)            // reset active low
 );
 
+// Video timing generator
+video_timing video_timing_inst (
+    .clk            (pixel_clk),
+    .clken          (1'b1),
+    .gen_clken      (1'b1),
+    .sof_state      (1'b0),
+    .hsync_out      (hsync),
+    .hblank_out     (hblank),
+    .vsync_out      (vsync),
+    .vblank_out     (vblank),
+    .active_video_out (active),
+    .resetn         (~rst),
+    .fsync_out      (fsync)
+);
 
-localparam H_RESOLUTION = 1280; 
-localparam V_RESOLUTION = 720;  
+// Encode video data onto three TMDS data channels
+generate
+    genvar i;
 
-reg [$clog2(H_RESOLUTION)-1:0] x_coord;
-reg [$clog2(V_RESOLUTION)-1:0] y_coord;
+    for (i=0; i<3; i=i+1) begin
+        // TMDS data encoder
+        tmds_encode tmds_encode_inst (
+            .pixel_clk      (pixel_clk),        // pixel clock
+            .rst            (rst),              // reset
+            .ctl            (ctl[i]),           // control bits
+            .active         (active),           // active pixel indicator
+            .pdata          (pdata[i]),         // 8-bit pixel data
+            .tmds_data      (tmds_data[i])      // encoded 10-bit tmds data
+        );
 
-
-always @(posedge pixel_clk) begin
-    if (rst) begin
-        x_coord <= 0;
-        y_coord <= 0;
-    end else if (active) 
-    begin 
-        if (x_coord == H_RESOLUTION - 1) 
-        begin
-            x_coord <= 0;
-            if (y_coord == V_RESOLUTION - 1) 
-            begin
-                y_coord <= 0; 
-            end 
-            else 
-            begin
-                y_coord <= y_coord + 1; 
-            end
-        end 
-        else 
-        begin
-            x_coord <= x_coord + 1; 
-        end
-    end 
-    else 
-    begin
-        
-        x_coord <= 0;
-        if (vblank) 
-        begin 
-            y_coord <= 0; 
-        end
+        // TMDS data output serdes
+        tmds_oserdes tmds_oserdes_inst (
+            .pixel_clk      (pixel_clk),        // pixel clock
+            .serdes_clk     (serdes_clk),       // serdes clock
+            .rst            (rst),              // reset
+            .tmds_data      (tmds_data[i]),     // encoded 10-bit TMDS data
+            .tmds_serdes_p  (tmds_tx_data_p[i]),// TMDS data p channel
+            .tmds_serdes_n  (tmds_tx_data_n[i]) // TMDS data n channel
+        );
     end
-end
+endgenerate
 
-wire [7:0] pdata_r, pdata_g, pdata_b;
+// TMDS clock output serdes
+tmds_oserdes tmds_oserdes_clock (
+    .pixel_clk      (pixel_clk),        // pixel clock
+    .serdes_clk     (serdes_clk),       // serdes clock
+    .rst            (rst),              // reset
+    .tmds_data      (10'b1111100000),   // pixel clock pattern
+    .tmds_serdes_p  (tmds_tx_clk_p),    // TMDS clock p channel
+    .tmds_serdes_n  (tmds_tx_clk_n)     // TMDS clock n channel
+);
 
 // ROM image 224x224 
 // (IP: image_rom, W:24, D:50176)
@@ -124,16 +150,55 @@ hdmi_compositor compositor_inst (
     .img_rom_addr   (img_addr),
     .img_rom_data   (img_data),
     
-//    .text_rom_addr  (text_addr),
-//    .text_rom_data  (text_data),
+    .text_rom_addr  (text_addr),
+    .text_rom_data  (text_data),
 
-//    .font_rom_addr  (font_addr),
-//    .font_rom_data  (font_data),
+    .font_rom_addr  (font_addr),
+    .font_rom_data  (font_data),
+    
+    .enable_image(1'b1),
+    .enable_text(1'b1),
 
     .pdata_r        (pdata_r),
     .pdata_g        (pdata_g),
     .pdata_b        (pdata_b)
 );
+
+
+always @(posedge pixel_clk) begin
+    if (rst) begin
+        x_coord <= 0;
+        y_coord <= 0;
+    end else if (active) 
+    begin 
+        if (x_coord == H_RESOLUTION - 1) 
+        begin
+            x_coord <= 0;
+            if (y_coord == V_RESOLUTION - 1) 
+            begin
+                y_coord <= 0; 
+            end 
+            else 
+            begin
+                y_coord <= y_coord + 1; 
+            end
+        end 
+        else 
+        begin
+            x_coord <= x_coord + 1; 
+        end
+    end 
+    else 
+    begin
+        
+        x_coord <= 0;
+        if (vblank) 
+        begin 
+            y_coord <= 0; 
+        end
+    end
+end
+
 
 // Transition into system reset following MMCM locked indicator
 always @(posedge pixel_clk or negedge locked)
@@ -148,67 +213,6 @@ end else begin
 end
 
 assign rst = (rstcnt == 8'hff) ? 1'b0 : 1'b1;
-
-// Video timing generator
-video_timing video_timing_inst (
-    .clk            (pixel_clk),
-    .clken          (1'b1),
-    .gen_clken      (1'b1),
-    .sof_state      (1'b0),
-    .hsync_out      (hsync),
-    .hblank_out     (hblank),
-    .vsync_out      (vsync),
-    .vblank_out     (vblank),
-    .active_video_out (active),
-    .resetn         (~rst),
-    .fsync_out      (fsync)
-);
-
-assign ctl[0] = {vsync, hsync};                      // vsync and hsync go onto TMDS channel 0
-assign ctl[1] = 2'b00;
-assign ctl[2] = 2'b00;
-
-wire [7:0] pdata [0:2]; 
-assign pdata[2] = pdata_r;  
-assign pdata[1] = pdata_g;  
-assign pdata[0] = pdata_b;  
-
-// Encode video data onto three TMDS data channels
-generate
-    genvar i;
-
-    for (i=0; i<3; i=i+1) begin
-        // TMDS data encoder
-        tmds_encode tmds_encode_inst (
-            .pixel_clk      (pixel_clk),        // pixel clock
-            .rst            (rst),              // reset
-            .ctl            (ctl[i]),           // control bits
-            .active         (active),           // active pixel indicator
-            .pdata          (pdata[i]),         // 8-bit pixel data
-            .tmds_data      (tmds_data[i])      // encoded 10-bit tmds data
-        );
-
-        // TMDS data output serdes
-        tmds_oserdes tmds_oserdes_inst (
-            .pixel_clk      (pixel_clk),        // pixel clock
-            .serdes_clk     (serdes_clk),       // serdes clock
-            .rst            (rst),              // reset
-            .tmds_data      (tmds_data[i]),     // encoded 10-bit TMDS data
-            .tmds_serdes_p  (tmds_tx_data_p[i]),// TMDS data p channel
-            .tmds_serdes_n  (tmds_tx_data_n[i]) // TMDS data n channel
-        );
-    end
-endgenerate
-
-// TMDS clock output serdes
-tmds_oserdes tmds_oserdes_clock (
-    .pixel_clk      (pixel_clk),        // pixel clock
-    .serdes_clk     (serdes_clk),       // serdes clock
-    .rst            (rst),              // reset
-    .tmds_data      (10'b1111100000),   // pixel clock pattern
-    .tmds_serdes_p  (tmds_tx_clk_p),    // TMDS clock p channel
-    .tmds_serdes_n  (tmds_tx_clk_n)     // TMDS clock n channel
-);
 
 
 endmodule
