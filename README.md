@@ -5,13 +5,13 @@ It can display **images and text** on an HDMI monitor using custom Verilog modul
 
 ---
 
-## ✅ Features
+## 🌟 Features
 
-- 🎨 Display **image + text overlay** on HDMI screen  
-- 🖥 Supports **1280×720 @ 60Hz (720p)** HDMI output  
-- ⚡ Real-time pixel generation and compositing  
-- 🔄 TMDS encoding + OSERDES high-speed serialization  
-- 🧩 Fully modular Verilog design (easy to modify)
+- Display custom **image + text overlay** on HDMI screen  
+- Supports **1280×720 @ 60Hz (720p)** HDMI output  
+- Real-time pixel generation and compositing  
+- TMDS encoding + OSERDES high-speed serialization  
+- Fully modular Verilog design (easy to modify)
 
 ---
 
@@ -41,4 +41,4 @@ It can display **images and text** on an HDMI monitor using custom Verilog modul
 2. Add source files (`top.v`, `hdmi_compositor.v`, `tmds_encode.v`, `tmds_oserdes.v`)  
 3. Add constraints file (`.xdc`)  
 4. Synthesize → Implement → Generate Bitstream  
-5. Program FPGA → Connect HDMI monitor → Done! ✅
+5. Program FPGA → Connect HDMI monitor
