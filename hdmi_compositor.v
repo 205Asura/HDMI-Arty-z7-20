@@ -7,33 +7,33 @@ module hdmi_compositor (
     input wire [10:0] x_coord,
     input wire [9:0]  y_coord,
 
-    // === IMAGE ROM Interface ===
+    // IMAGE ROM Interface 
     output reg  [$clog2(224*224)-1:0] img_rom_addr,
     input wire  [23:0]                img_rom_data,
 
-    // === TEXT ROM Interface ===  
+    // TEXT ROM Interface
     output reg  [$clog2(80)-1:0]      text_rom_addr,
     input wire  [7:0]                text_rom_data,
     output reg  [$clog2(128*8)-1:0]   font_rom_addr,
     input wire  [7:0]                font_rom_data,
 
-    // === Control Signals ===
+    // Control Signals
     input wire        enable_image,
     input wire        enable_text,
 
-    // === Pixel Output ===
+    // Pixel Output
     output reg [7:0] pdata_r,
     output reg [7:0] pdata_g,
     output reg [7:0] pdata_b
 );
 
-// === Cấu hình Image ===
+// Cấu hình Image 
 localparam IMG_WIDTH  = 224;
 localparam IMG_HEIGHT = 224;
 localparam IMG_X_START = 528;
 localparam IMG_Y_START = 248;
 
-// === Cấu hình Text ===
+// Text config
 localparam FONT_WIDTH  = 8;
 localparam FONT_HEIGHT = 8;
 localparam SCALE_FACTOR = 4;
@@ -41,13 +41,13 @@ localparam SCALED_WIDTH = FONT_WIDTH * SCALE_FACTOR;
 localparam SCALED_HEIGHT = FONT_HEIGHT * SCALE_FACTOR;
 localparam TEXT_X_START = 448;
 localparam TEXT_Y_START = 344;
-localparam TEXT_LENGTH = 12;
+localparam TEXT_LENGTH = 20;
 
-// === Màu sắc ===
+// Color
 localparam COLOR_BLACK = 24'h000000;
 localparam COLOR_WHITE = 24'hFFFFFF;
 
-// === Pipeline cho Image ===
+// pipeline cho Image
 wire [10:0] x_img_prefetch = x_coord + 2;
 wire in_img_area = (x_coord >= IMG_X_START) && (x_coord < IMG_X_START + IMG_WIDTH) &&
                    (y_coord >= IMG_Y_START) && (y_coord < IMG_Y_START + IMG_HEIGHT);
@@ -59,7 +59,7 @@ wire [7:0] img_y_prefetch = y_coord - IMG_Y_START;
 reg [23:0] img_data_delayed;
 reg        in_img_area_delayed;
 
-// === Pipeline cho Text ===
+// Pipeline cho Text
 wire [10:0] x_text_plus3 = x_coord + 3;
 wire [6:0] text_col_plus3 = (x_text_plus3 >= TEXT_X_START && 
                             x_text_plus3 < TEXT_X_START + TEXT_LENGTH * SCALED_WIDTH) ?
@@ -80,7 +80,7 @@ reg        is_text_area_d1, is_text_area_d2;
 
 wire [7:0] safe_text_rom_data = (text_rom_data < 128) ? text_rom_data : 8'h3F;
 
-// === Logic chính ===
+// Logic 
 always @(posedge pixel_clk) begin
     if (rst) begin
         pdata_r <= 0; pdata_g <= 0; pdata_b <= 0;
@@ -95,14 +95,12 @@ always @(posedge pixel_clk) begin
         pdata_r <= 0; pdata_g <= 0; pdata_b <= 0;
         img_rom_addr <= 0; text_rom_addr <= 0; font_rom_addr <= 0;
     end else begin
-        // === Image Pre-fetch ===
         if (enable_image && in_img_prefetch_area) begin
             img_rom_addr <= img_y_prefetch * IMG_WIDTH + img_x_prefetch;
         end else begin
             img_rom_addr <= 0;
         end
 
-        // === Text Pre-fetch ===
         if (enable_text && (y_coord >= TEXT_Y_START) && (y_coord < TEXT_Y_START + SCALED_HEIGHT)) begin
             text_rom_addr <= text_col_plus3;
             font_rom_addr <= (safe_text_rom_data * FONT_HEIGHT) + text_y_sub_plus3;
@@ -111,7 +109,7 @@ always @(posedge pixel_clk) begin
             font_rom_addr <= 0;
         end
 
-        // === Pipeline Delays ===
+        // Pipeline Delay
         img_data_delayed <= img_rom_data;
         in_img_area_delayed <= in_img_area;
         
@@ -124,15 +122,15 @@ always @(posedge pixel_clk) begin
         is_text_area_d1 <= is_text_area;
         is_text_area_d2 <= is_text_area_d1;
 
-        // === Pixel Output Priority (Text trên Image) ===
+        // Pixel Output Priority (Text trên Image)
         if (enable_text && is_text_area_d2) begin
-            // Hiển thị Text (ưu tiên cao hơn)
+            // Hiển thị Text 
             if (font_rom_data_d2[7 - text_x_sub_d2]) begin
                 pdata_r <= COLOR_WHITE[23:16];
                 pdata_g <= COLOR_WHITE[15:8];
                 pdata_b <= COLOR_WHITE[7:0];
             end else begin
-                // Nền trong suốt - hiển thị image bên dưới
+                // hiển thị image bên dưới
                 if (enable_image && in_img_area_delayed) begin
                     pdata_r <= img_data_delayed[23:16];
                     pdata_g <= img_data_delayed[15:8];
